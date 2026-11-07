@@ -31,6 +31,9 @@
   #top li:hover { text-decoration: underline; }
   .lg { display: inline-block; width: 24px; height: 0; vertical-align: middle; margin-right: 4px; border-top: 4px solid #ff3b30; }
   .lg.p { border-top: 4px dotted #ff4fd8; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; margin: 0 3px 0 8px; border: 1px solid rgba(0,0,0,.4); }
+  .dot.y { background: #ffd84a; margin-left: 0; }
+  .dot.c { background: #7fe8ff; }
   #msg { position: absolute; z-index: 30; top: 50%; left: 50%; transform: translate(-50%,-50%);
     background: #fff; padding: 20px 24px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,.35);
     max-width: 420px; display: none; line-height: 1.6; }
@@ -50,9 +53,10 @@
   <div class="row"><label style="justify-content:flex-start;gap:6px;cursor:pointer"><input id="exArt" type="checkbox" checked> 간선도로 제외 (상도로·양녕로·지하차도)</label></div>
   <div class="row"><label style="justify-content:flex-start;gap:6px;cursor:pointer"><input id="showAlley" type="checkbox" checked> <span class="lg"></span>골목·차도 암부</label></div>
   <div class="row" style="margin-top:4px"><label style="justify-content:flex-start;gap:6px;cursor:pointer"><input id="showPath" type="checkbox" checked> <span class="lg p"></span>계단·산책로·보행로 암부</label></div>
+  <div class="note" style="margin-top:8px"><span class="dot y"></span>가로등(지번 중심 위치)<span class="dot c"></span>보안등(개별 좌표)</div>
   <div id="stats">지도를 불러오는 중…</div>
   <div id="top"></div>
-  <div class="note">※ 가로등 위치는 지번(필지) 중심 기준이라 실제 기둥 위치와 10~30m 차이가 날 수 있어요. 또 이 데이터는 구 관리 가로등 기준이라 골목 보안등이 빠져 있을 수 있어, 실제보다 어둡게 나올 수 있습니다. 표시된 구간은 확정이 아닌 <b>암부 추정 구간</b>입니다.</div>
+  <div class="note">※ 가로등은 지번(필지) 중심 좌표라 실제 기둥과 10~30m 차이가 날 수 있고, 보안등은 개별 좌표입니다. 구 관리 가로등·보안등 기준이라 상가·건물 불빛 등은 반영되지 않아요. 표시된 구간은 확정이 아닌 <b>암부 추정 구간</b>입니다.</div>
 </div>
 
 <div id="msg"></div>
@@ -112,6 +116,14 @@ async function init() {
     return;
   }
 
+  // 보안등(개별 좌표) — security.json 이 없어도 지도는 동작
+  try {
+    const r2 = await fetch("security.json");
+    if (r2.ok) lights = lights.concat(await r2.json());
+  } catch (e) { console.warn("security.json 없음", e); }
+  const nStreet = lights.filter((l) => !l.security).length;
+  const nSec = lights.length - nStreet;
+
   const lat0 = lights.reduce((a, l) => a + l.lat, 0) / lights.length;
   const lon0 = lights.reduce((a, l) => a + l.lon, 0) / lights.length;
   const proj = Analysis.makeProj(lat0, lon0);
@@ -130,8 +142,9 @@ async function init() {
 
   // 가로등 점(항상 표시) + 불빛 반경(야간만)
   const dots = lights.map((l) => new kakao.maps.Circle({
-    center: ll(l.lat, l.lon), radius: 2.5, strokeWeight: 1, strokeColor: "#b8860b",
-    fillColor: "#ffd84a", fillOpacity: 1, zIndex: 6,
+    center: ll(l.lat, l.lon), radius: 2.5, strokeWeight: 1,
+    strokeColor: l.security ? "#0b7285" : "#b8860b",
+    fillColor: l.security ? "#7fe8ff" : "#ffd84a", fillOpacity: 1, zIndex: 6,
   }));
   dots.forEach((c) => c.setMap(map));
   let glows = [];
@@ -190,7 +203,8 @@ async function init() {
     const rP = Analysis.findDark(useLines.filter((ln) => kindOf(ln.tags) === "path"), R, MIN_LEN);
     const pc = (r) => (r.totalLen ? ((r.darkLen / r.totalLen) * 100).toFixed(0) : 0);
     $("stats").innerHTML =
-      `가로등 지번 <b>${lights.length}</b>곳 · 표찰 <b>${lights.reduce((a, l) => a + l.poles, 0)}</b>개 · 등 <b>${lights.reduce((a, l) => a + l.lamps, 0)}</b>개<br>` +
+      `가로등 지번 <b>${nStreet}</b>곳 · 표찰 <b>${lights.filter((l) => !l.security).reduce((a, l) => a + l.poles, 0)}</b>개 · 등 <b>${lights.filter((l) => !l.security).reduce((a, l) => a + l.lamps, 0)}</b>개<br>` +
+      `보안등 <b>${nSec}</b>개<br>` +
       `골목·차도 약 ${Math.round(rA.totalLen)} m 중 암부 추정 <b>${Math.round(rA.darkLen)} m (${pc(rA)}%)</b><br>` +
       `계단·산책로 약 ${Math.round(rP.totalLen)} m 중 암부 추정 <b>${Math.round(rP.darkLen)} m (${pc(rP)}%)</b><br>` +
       `암부 구간 <b>${rA.segments.length + rP.segments.length}</b>곳<br>` +
