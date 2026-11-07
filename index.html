@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>상도1동 야간 시야 지도</title>
+<style>
+  html, body { margin: 0; height: 100%; font-family: -apple-system, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+  #map { width: 100%; height: 100%; }
+  #panel {
+    position: absolute; top: 12px; left: 12px; z-index: 20; width: 270px;
+    background: rgba(255,255,255,.95); border-radius: 12px; padding: 14px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.25); font-size: 13px; line-height: 1.5;
+    max-height: calc(100vh - 52px); overflow-y: auto;
+  }
+  #panel.night { background: rgba(20,24,38,.92); color: #e8ecf5; }
+  #nightBtn {
+    width: 100%; padding: 10px; font-size: 15px; font-weight: 700; border: 0; border-radius: 8px;
+    cursor: pointer; background: #1f2a44; color: #fff;
+  }
+  #panel.night #nightBtn { background: #ffd84a; color: #1a1a1a; }
+  .row { margin-top: 10px; }
+  .row label { display: flex; justify-content: space-between; }
+  input[type=range] { width: 100%; }
+  #stats { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(128,128,128,.35); }
+  .note { margin-top: 10px; font-size: 11.5px; opacity: .75; }
+  #top { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(128,128,128,.35); }
+  #top:empty { display: none; }
+  #top ol { margin: 6px 0 0; padding-left: 20px; }
+  #top li { cursor: pointer; padding: 2px 0; }
+  #top li:hover { text-decoration: underline; }
+  .lg { display: inline-block; width: 24px; height: 0; vertical-align: middle; margin-right: 4px; border-top: 4px solid #ff3b30; }
+  .lg.p { border-top: 4px dotted #ff4fd8; }
+  #msg { position: absolute; z-index: 30; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    background: #fff; padding: 20px 24px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,.35);
+    max-width: 420px; display: none; line-height: 1.6; }
+  .iw { padding: 10px 12px; font-size: 13px; line-height: 1.55; min-width: 220px; }
+  .iw b { color: #d8281e; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="panel">
+  <button id="nightBtn">🌙 야간 시야</button>
+  <div class="row">
+    <label><span>가로등 불빛 반경</span><b id="rVal">20 m</b></label>
+    <input id="rng" type="range" min="10" max="40" step="1" value="20">
+  </div>
+  <div class="row"><label style="justify-content:flex-start;gap:6px;cursor:pointer"><input id="exArt" type="checkbox" checked> 간선도로 제외 (상도로·양녕로·지하차도)</label></div>
+  <div class="row"><label style="justify-content:flex-start;gap:6px;cursor:pointer"><input id="showAlley" type="checkbox" checked> <span class="lg"></span>골목·차도 암부</label></div>
+  <div class="row" style="margin-top:4px"><label style="justify-content:flex-start;gap:6px;cursor:pointer"><input id="showPath" type="checkbox" checked> <span class="lg p"></span>계단·산책로·보행로 암부</label></div>
+  <div id="stats">지도를 불러오는 중…</div>
+  <div id="top"></div>
+  <div class="note">※ 가로등 위치는 지번(필지) 중심 기준이라 실제 기둥 위치와 10~30m 차이가 날 수 있어요. 또 이 데이터는 구 관리 가로등 기준이라 골목 보안등이 빠져 있을 수 있어, 실제보다 어둡게 나올 수 있습니다. 표시된 구간은 확정이 아닌 <b>암부 추정 구간</b>입니다.</div>
+</div>
+
+<div id="msg"></div>
+
+<script src="config.js"></script>
+<script src="analysis.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+function showMsg(html) { const m = $("msg"); m.innerHTML = html; m.style.display = "block"; }
+
+if (!window.KAKAO_JS_KEY || window.KAKAO_JS_KEY.startsWith("여기에")) {
+  showMsg("<b>config.js 에 JavaScript 키를 넣어주세요.</b>");
+} else {
+  const s = document.createElement("script");
+  s.src = "https://dapi.kakao.com/v2/maps/sdk.js?appkey=" + window.KAKAO_JS_KEY + "&autoload=false";
+  s.onload = () => kakao.maps.load(init);
+  s.onerror = () => showMsg("카카오맵 SDK를 불러오지 못했어요.<br>지금 접속 주소: <b>" + location.origin + "</b><br>이 주소(127.0.0.1:5500, localhost:5500 둘 다)를 카카오 <b>Web 도메인</b>에 등록했는지, JavaScript 키가 맞는지 확인해 주세요.");
+  document.head.appendChild(s);
+}
+
+const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
+const STEP = 5;      // 도로를 쪼개는 간격(m)
+const MIN_LEN = 10;  // 이보다 짧은 암부는 무시(m)
+// 가로등 위치(지번)를 지도에 못 올린 간선도로는 "어둡다"고 잘못 나오므로 암부 분석에서 제외
+const EXCLUDE_NAMES = new Set(["상도로", "양녕로", "상도지하차도"]);
+const isExcluded = (tags) => EXCLUDE_NAMES.has((tags.name || "").trim()) || tags.tunnel === "yes";
+// 차도 옆 인도·횡단보도(차도와 겹침), 주차장 통로는 분석에서 항상 제외
+const isIgnored = (t) => t.footway === "sidewalk" || t.footway === "crossing" || t.highway === "crossing" ||
+  t.service === "parking_aisle" || t.service === "driveway";
+// 계단·산책로·보행로 / 골목·차도 구분
+const kindOf = (t) => ["footway", "path", "pedestrian", "steps", "track"].includes(t.highway) ? "path" : "alley";
+const kindLabel = (sg) => sg.tags.highway === "steps" ? "계단" : sg.kind === "path" ? "산책로·보행로" : "골목·차도";
+
+async function fetchRoads(bbox) {
+  const [s, w, n, e] = bbox;
+  const q = `[out:json][timeout:30];way["highway"~"^(primary|secondary|tertiary|unclassified|residential|living_street|service|pedestrian|footway|path|steps)$"](${s},${w},${n},${e});out geom tags;`;
+  let lastErr;
+  for (const url of OVERPASS) {
+    try {
+      const r = await fetch(url + "?data=" + encodeURIComponent(q));
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return (await r.json()).elements;
+    } catch (err) { lastErr = err; }
+  }
+  throw lastErr;
+}
+
+async function init() {
+  let lights;
+  try {
+    const r = await fetch("lights.json");
+    if (!r.ok) throw new Error();
+    lights = await r.json();
+  } catch {
+    showMsg("<b>lights.json 을 읽지 못했어요.</b><br>① geocode.py 를 먼저 실행했는지<br>② 파일을 더블클릭이 아니라 <code>python -m http.server 5500</code> 로 연 주소(http://localhost:5500)로 접속했는지 확인해 주세요.");
+    $("stats").textContent = "데이터 없음";
+    return;
+  }
+
+  const lat0 = lights.reduce((a, l) => a + l.lat, 0) / lights.length;
+  const lon0 = lights.reduce((a, l) => a + l.lon, 0) / lights.length;
+  const proj = Analysis.makeProj(lat0, lon0);
+  const lightsXY = lights.map((l) => proj.toXY(l.lat, l.lon));
+  const poly = Analysis.inflate(Analysis.hull(lightsXY), 15);
+
+  const map = new kakao.maps.Map($("map"), { center: new kakao.maps.LatLng(lat0, lon0), level: 3 });
+  const ll = (lat, lon) => new kakao.maps.LatLng(lat, lon);
+
+  // 야간 모드 때 지도를 어둡게 덮는 큰 사각형
+  const D = 0.04;
+  const nightCover = new kakao.maps.Polygon({
+    path: [ll(lat0 - D, lon0 - D), ll(lat0 - D, lon0 + D), ll(lat0 + D, lon0 + D), ll(lat0 + D, lon0 - D)],
+    strokeWeight: 0, fillColor: "#050a1a", fillOpacity: 0.72, zIndex: 1, clickable: false,
+  });
+
+  // 가로등 점(항상 표시) + 불빛 반경(야간만)
+  const dots = lights.map((l) => new kakao.maps.Circle({
+    center: ll(l.lat, l.lon), radius: 2.5, strokeWeight: 1, strokeColor: "#b8860b",
+    fillColor: "#ffd84a", fillOpacity: 1, zIndex: 6,
+  }));
+  dots.forEach((c) => c.setMap(map));
+  let glows = [];
+  const infoWin = new kakao.maps.InfoWindow({ removable: true, zIndex: 50 });
+
+  // 도로 데이터는 가로등 범위 + 여유 60m
+  const mLat = 60 / proj.ky, mLon = 60 / proj.kx;
+  const bbox = [
+    Math.min(...lights.map((l) => l.lat)) - mLat, Math.min(...lights.map((l) => l.lon)) - mLon,
+    Math.max(...lights.map((l) => l.lat)) + mLat, Math.max(...lights.map((l) => l.lon)) + mLon,
+  ];
+  let lines, excludedLen = 0;
+  try {
+    const ways = await fetchRoads(bbox);
+    lines = Analysis.sampleWays(ways, proj, STEP);
+    Analysis.annotate(lines, lightsXY, poly);
+  } catch (err) {
+    $("stats").textContent = "도로 데이터를 불러오지 못했어요 (OpenStreetMap). 잠시 후 새로고침해 보세요.";
+    console.error(err);
+    return;
+  }
+
+  let darkLines = [];
+  let night = false;
+
+  function openInfo(sg, latlng, R) {
+    infoWin.setContent(
+      `<div class="iw"><b>⚠ 가로등 간격 초과로 야간 시인성 급감</b><br>` +
+      `${sg.name || "이름 없는 " + kindLabel(sg)} · ${kindLabel(sg)}<br>` +
+      `암부 구간 길이 약 ${Math.round(sg.length)} m<br>` +
+      `가장 가까운 가로등까지 최대 약 ${Math.round(sg.maxD)} m (불빛 반경 기준 ${R} m)</div>`
+    );
+    infoWin.setPosition(latlng);
+    infoWin.open(map);
+  }
+
+  function render() {
+    const R = +$("rng").value;
+    $("rVal").textContent = R + " m";
+
+    darkLines.forEach((p) => p.setMap(null));
+    glows.forEach((c) => c.setMap(null));
+    darkLines = []; glows = [];
+    $("top").innerHTML = "";
+
+    const excludeOn = $("exArt").checked;
+    const showA = $("showAlley").checked, showP = $("showPath").checked;
+    excludedLen = 0;
+    const useLines = lines.filter((ln) => {
+      if (isIgnored(ln.tags)) return false;
+      if (!excludeOn || !isExcluded(ln.tags)) return true;
+      for (let i = 1; i < ln.samples.length; i++) excludedLen += Math.hypot(ln.samples[i].x - ln.samples[i - 1].x, ln.samples[i].y - ln.samples[i - 1].y);
+      return false;
+    });
+    const rA = Analysis.findDark(useLines.filter((ln) => kindOf(ln.tags) === "alley"), R, MIN_LEN);
+    const rP = Analysis.findDark(useLines.filter((ln) => kindOf(ln.tags) === "path"), R, MIN_LEN);
+    const pc = (r) => (r.totalLen ? ((r.darkLen / r.totalLen) * 100).toFixed(0) : 0);
+    $("stats").innerHTML =
+      `가로등 지번 <b>${lights.length}</b>곳 · 표찰 <b>${lights.reduce((a, l) => a + l.poles, 0)}</b>개 · 등 <b>${lights.reduce((a, l) => a + l.lamps, 0)}</b>개<br>` +
+      `골목·차도 약 ${Math.round(rA.totalLen)} m 중 암부 추정 <b>${Math.round(rA.darkLen)} m (${pc(rA)}%)</b><br>` +
+      `계단·산책로 약 ${Math.round(rP.totalLen)} m 중 암부 추정 <b>${Math.round(rP.darkLen)} m (${pc(rP)}%)</b><br>` +
+      `암부 구간 <b>${rA.segments.length + rP.segments.length}</b>곳<br>` +
+      (excludeOn ? `<span style="opacity:.75">※ 간선도로 약 ${Math.round(excludedLen)} m 제외 중</span>` : "");
+
+    if (!night) return;
+
+    glows = lights.map((l) => new kakao.maps.Circle({
+      center: ll(l.lat, l.lon), radius: R, strokeWeight: 0,
+      fillColor: "#ffe27a", fillOpacity: 0.28, zIndex: 3, clickable: false,
+    }));
+    glows.forEach((c) => c.setMap(map));
+
+    const segs = [
+      ...(showA ? rA.segments.map((s) => ({ ...s, kind: "alley" })) : []),
+      ...(showP ? rP.segments.map((s) => ({ ...s, kind: "path" })) : []),
+    ];
+    segs.forEach((sg) => {
+      const isPath = sg.kind === "path";
+      const pl = new kakao.maps.Polyline({
+        path: sg.points.map((p) => ll(p.lat, p.lon)),
+        strokeWeight: 6, strokeColor: isPath ? "#ff4fd8" : "#ff3b30", strokeOpacity: 0.95,
+        strokeStyle: isPath ? "shortdash" : "solid", zIndex: 10,
+      });
+      pl.setMap(map);
+      kakao.maps.event.addListener(pl, "click", (e) => openInfo(sg, e.latLng, R));
+      darkLines.push(pl);
+    });
+
+    // 암부 구간 TOP 10 (긴 순) — 클릭하면 그 위치로 이동
+    const top = segs.slice().sort((a, b) => b.length - a.length).slice(0, 10);
+    if (top.length) {
+      $("top").innerHTML = "<b>암부 구간 TOP 10 (긴 순)</b><ol>" +
+        top.map((sg, i) => `<li data-i="${i}">${sg.name || "이름 없는 " + kindLabel(sg)} · ${kindLabel(sg)} · 약 ${Math.round(sg.length)} m</li>`).join("") + "</ol>";
+      $("top").querySelectorAll("li").forEach((li) => li.addEventListener("click", () => {
+        const sg = top[+li.dataset.i];
+        const mid = sg.points[Math.floor(sg.points.length / 2)];
+        map.setLevel(2);
+        map.setCenter(ll(mid.lat, mid.lon));
+        openInfo(sg, ll(mid.lat, mid.lon), R);
+      }));
+    }
+  }
+
+  $("nightBtn").addEventListener("click", () => {
+    night = !night;
+    $("panel").classList.toggle("night", night);
+    $("nightBtn").textContent = night ? "☀️ 일반 지도로" : "🌙 야간 시야";
+    nightCover.setMap(night ? map : null);
+    infoWin.close();
+    render();
+  });
+  $("rng").addEventListener("input", render);
+  $("exArt").addEventListener("change", render);
+  $("showAlley").addEventListener("change", render);
+  $("showPath").addEventListener("change", render);
+
+  render();
+}
+</script>
+</body>
+</html>
