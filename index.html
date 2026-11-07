@@ -104,6 +104,45 @@ async function fetchRoads(bbox) {
   throw lastErr;
 }
 
+// 상도1동 행정동 경계(OpenStreetMap)를 하나의 닫힌 고리 [[lat,lon],...] 로 조립
+function buildRing(rel) {
+  const same = (a, b) => Math.abs(a[0] - b[0]) < 1e-7 && Math.abs(a[1] - b[1]) < 1e-7;
+  let segs = (rel.members || [])
+    .filter((m) => m.type === "way" && m.geometry && m.geometry.length > 1 && (m.role === "outer" || m.role === ""))
+    .map((m) => m.geometry.map((q) => [q.lat, q.lon]));
+  const rings = [];
+  while (segs.length) {
+    let ring = segs.shift(), grew = true;
+    while (grew && !(ring.length > 2 && same(ring[0], ring[ring.length - 1]))) {
+      grew = false;
+      const end = ring[ring.length - 1];
+      for (let i = 0; i < segs.length; i++) {
+        const s = segs[i];
+        if (same(s[0], end)) { ring = ring.concat(s.slice(1)); segs.splice(i, 1); grew = true; break; }
+        if (same(s[s.length - 1], end)) { ring = ring.concat(s.slice(0, -1).reverse()); segs.splice(i, 1); grew = true; break; }
+      }
+    }
+    rings.push(ring);
+  }
+  rings.sort((a, b) => b.length - a.length);
+  return rings[0] && rings[0].length >= 10 ? rings[0] : null;
+}
+
+async function fetchBoundary(bbox) {
+  const [s, w, n, e] = bbox;
+  const q = `[out:json][timeout:30];relation["boundary"="administrative"]["name"="상도1동"](${s},${w},${n},${e});out geom;`;
+  let lastErr;
+  for (const url of OVERPASS) {
+    try {
+      const r = await fetch(url + "?data=" + encodeURIComponent(q));
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const rel = ((await r.json()).elements || [])[0];
+      return rel ? buildRing(rel) : null;
+    } catch (err) { lastErr = err; }
+  }
+  throw lastErr;
+}
+
 async function init() {
   let lights;
   try {
@@ -128,10 +167,35 @@ async function init() {
   const lon0 = lights.reduce((a, l) => a + l.lon, 0) / lights.length;
   const proj = Analysis.makeProj(lat0, lon0);
   const lightsXY = lights.map((l) => proj.toXY(l.lat, l.lon));
-  const poly = Analysis.inflate(Analysis.hull(lightsXY), 15);
+  // 분석 범위: 상도1동 행정동 경계. 못 불러오면 가로등 분포 범위로 대체
+  const mB = 600 / proj.ky, mBL = 600 / proj.kx;
+  let ring = null;
+  try {
+    ring = await fetchBoundary([
+      Math.min(...lights.map((l) => l.lat)) - mB, Math.min(...lights.map((l) => l.lon)) - mBL,
+      Math.max(...lights.map((l) => l.lat)) + mB, Math.max(...lights.map((l) => l.lon)) + mBL,
+    ]);
+  } catch (e) { console.warn("행정동 경계 로딩 실패", e); }
+  const poly = ring ? ring.map(([la, lo]) => proj.toXY(la, lo)) : Analysis.inflate(Analysis.hull(lightsXY), 15);
 
   const map = new kakao.maps.Map($("map"), { center: new kakao.maps.LatLng(lat0, lon0), level: 3 });
   const ll = (lat, lon) => new kakao.maps.LatLng(lat, lon);
+
+  // 상도1동 경계선(파란 실선) · 화면을 동에 맞추기 · 야간 모드에서 동 바깥을 더 어둡게
+  let outsideMask = null;
+  if (ring) {
+    const ringLL = ring.map(([la, lo]) => ll(la, lo));
+    new kakao.maps.Polygon({ map, path: ringLL, strokeWeight: 3, strokeColor: "#4dabf7", strokeOpacity: 0.9, fillOpacity: 0, zIndex: 2, clickable: false });
+    const bds = new kakao.maps.LatLngBounds();
+    ringLL.forEach((q) => bds.extend(q));
+    map.setBounds(bds);
+    map.setMaxLevel(6);
+    const BIG = 0.2;
+    outsideMask = new kakao.maps.Polygon({
+      path: [[ll(lat0 - BIG, lon0 - BIG), ll(lat0 - BIG, lon0 + BIG), ll(lat0 + BIG, lon0 + BIG), ll(lat0 + BIG, lon0 - BIG)], ringLL],
+      strokeWeight: 0, fillColor: "#000000", fillOpacity: 0.55, zIndex: 2, clickable: false,
+    });
+  }
 
   // 야간 모드 때 지도를 어둡게 덮는 큰 사각형
   const D = 0.04;
@@ -150,11 +214,12 @@ async function init() {
   let glows = [];
   const infoWin = new kakao.maps.InfoWindow({ removable: true, zIndex: 50 });
 
-  // 도로 데이터는 가로등 범위 + 여유 60m
+  // 도로 데이터는 (경계가 있으면 경계, 없으면 가로등 범위) + 여유 60m
+  const pts = ring || lights.map((l) => [l.lat, l.lon]);
   const mLat = 60 / proj.ky, mLon = 60 / proj.kx;
   const bbox = [
-    Math.min(...lights.map((l) => l.lat)) - mLat, Math.min(...lights.map((l) => l.lon)) - mLon,
-    Math.max(...lights.map((l) => l.lat)) + mLat, Math.max(...lights.map((l) => l.lon)) + mLon,
+    Math.min(...pts.map((q) => q[0])) - mLat, Math.min(...pts.map((q) => q[1])) - mLon,
+    Math.max(...pts.map((q) => q[0])) + mLat, Math.max(...pts.map((q) => q[1])) + mLon,
   ];
   let lines, excludedLen = 0;
   try {
@@ -208,6 +273,7 @@ async function init() {
       `골목·차도 약 ${Math.round(rA.totalLen)} m 중 암부 추정 <b>${Math.round(rA.darkLen)} m (${pc(rA)}%)</b><br>` +
       `계단·산책로 약 ${Math.round(rP.totalLen)} m 중 암부 추정 <b>${Math.round(rP.darkLen)} m (${pc(rP)}%)</b><br>` +
       `암부 구간 <b>${rA.segments.length + rP.segments.length}</b>곳<br>` +
+      `<span style="opacity:.75">※ 분석 범위: ${ring ? "상도1동 행정동 경계 안" : "가로등 분포 범위 (상도1동 경계를 못 불러왔어요)"}</span><br>` +
       (excludeOn ? `<span style="opacity:.75">※ 간선도로 약 ${Math.round(excludedLen)} m 제외 중</span>` : "");
 
     if (!night) return;
@@ -254,6 +320,7 @@ async function init() {
     $("panel").classList.toggle("night", night);
     $("nightBtn").textContent = night ? "☀️ 일반 지도로" : "🌙 야간 시야";
     nightCover.setMap(night ? map : null);
+    if (outsideMask) outsideMask.setMap(night ? map : null);
     infoWin.close();
     render();
   });
