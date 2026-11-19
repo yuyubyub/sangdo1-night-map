@@ -8,7 +8,7 @@
   html, body { margin: 0; height: 100%; font-family: -apple-system, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
   #map { width: 100%; height: 100%; }
   #panel {
-    position: absolute; top: 12px; left: 12px; z-index: 20; width: 270px;
+    position: absolute; top: 12px; left: 12px; z-index: 20; width: 300px;
     background: rgba(255,255,255,.95); border-radius: 12px; padding: 14px;
     box-shadow: 0 2px 10px rgba(0,0,0,.25); font-size: 13px; line-height: 1.5;
     max-height: calc(100vh - 52px); overflow-y: auto;
@@ -20,8 +20,12 @@
   }
   #panel.night #nightBtn { background: #ffd84a; color: #1a1a1a; }
   .row { margin-top: 10px; }
-  .row label { display: flex; justify-content: space-between; }
-  input[type=range] { width: 100%; }
+  .row label { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+  select, input[type=number] { font: inherit; padding: 2px 4px; }
+  input[type=number] { width: 62px; }
+  .params { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: rgba(128,128,128,.12); }
+  .params .row { margin-top: 6px; }
+  .params .row:first-child { margin-top: 0; }
   #stats { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(128,128,128,.35); }
   .note { margin-top: 10px; font-size: 11.5px; opacity: .75; }
   #top { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(128,128,128,.35); }
@@ -29,15 +33,22 @@
   #top ol { margin: 6px 0 0; padding-left: 20px; }
   #top li { cursor: pointer; padding: 2px 0; }
   #top li:hover { text-decoration: underline; }
-  .lg { display: inline-block; width: 24px; height: 0; vertical-align: middle; margin-right: 4px; border-top: 4px solid #ff3b30; }
-  .lg.p { border-top: 4px dotted #ff4fd8; }
+  details { margin-top: 10px; font-size: 11.5px; }
+  details summary { cursor: pointer; font-weight: 700; font-size: 12.5px; }
+  details ul { margin: 6px 0 0; padding-left: 16px; }
+  details li { margin-bottom: 4px; }
+  .gdot { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 4px; }
+  .g1 { background: #2e9e5b; } .g2 { background: #8bc34a; } .g3 { background: #ff9f1a; } .g4 { background: #ff3b30; }
+  table.gt { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 12px; }
+  table.gt th, table.gt td { padding: 2px 4px; text-align: right; border-bottom: 1px solid rgba(128,128,128,.25); }
+  table.gt th:first-child, table.gt td:first-child { text-align: left; white-space: nowrap; }
   .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; margin: 0 3px 0 8px; border: 1px solid rgba(0,0,0,.4); }
   .dot.y { background: #ffd84a; margin-left: 0; }
   .dot.c { background: #7fe8ff; }
   #msg { position: absolute; z-index: 30; top: 50%; left: 50%; transform: translate(-50%,-50%);
     background: #fff; padding: 20px 24px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,.35);
     max-width: 420px; display: none; line-height: 1.6; }
-  .iw { padding: 10px 12px; font-size: 13px; line-height: 1.55; min-width: 220px; }
+  .iw { padding: 10px 12px; font-size: 13px; line-height: 1.55; min-width: 240px; }
   .iw b { color: #d8281e; }
 </style>
 </head>
@@ -46,17 +57,41 @@
 
 <div id="panel">
   <button id="nightBtn">🌙 야간 시야</button>
-  <div class="row">
-    <label><span>가로등 불빛 반경</span><b id="rVal">20 m</b></label>
-    <input id="rng" type="range" min="10" max="40" step="1" value="20">
+
+  <div class="params">
+    <div class="row"><label><span>보안등 전력 (W)</span><input id="wSec" type="number" min="15" max="100" step="2.5" value="37.5"></label></div>
+    <div class="row"><label><span>가로등 전력 (W)</span><input id="wSt" type="number" min="15" max="250" step="2.5" value="112.5"></label></div>
+    <div class="row"><label><span>가로등 설치 높이 (m)</span><input id="hSt" type="number" min="4" max="15" step="1" value="10"></label></div>
+    <div class="row"><label><span>광효율 (lm/W)</span><input id="eff" type="number" min="50" max="200" step="1" value="100"></label></div>
+    <div class="row"><label><span>보정 계수</span><input id="mf" type="number" min="0.5" max="1" step="0.05" value="0.75"></label></div>
+    <div class="note" style="margin-top:6px">등 1개 광속 ≈ 보안등 <b id="lmSec">2,813</b> lm · 가로등 <b id="lmSt">8,438</b> lm</div>
   </div>
-  <div class="row"><label style="justify-content:flex-start;gap:6px;cursor:pointer"><input id="exArt" type="checkbox" checked> 간선도로 제외 (상도로·양녕로·지하차도)</label></div>
-  <div class="row"><label style="justify-content:flex-start;gap:6px;cursor:pointer"><input id="showAlley" type="checkbox" checked> <span class="lg"></span>골목·차도 암부</label></div>
-  <div class="row" style="margin-top:4px"><label style="justify-content:flex-start;gap:6px;cursor:pointer"><input id="showPath" type="checkbox" checked> <span class="lg p"></span>계단·산책로·보행로 암부</label></div>
-  <div class="note" style="margin-top:8px"><span class="dot y"></span>가로등(지번 중심 위치)<span class="dot c"></span>보안등(개별 좌표)</div>
+
+  <div class="row"><label style="justify-content:flex-start;cursor:pointer"><input id="incStreet" type="checkbox" checked> 가로등 포함 (지번 중심 위치 · 가정 사양)</label></div>
+  <div class="row"><label style="justify-content:flex-start;cursor:pointer"><input id="exArt" type="checkbox" checked> 12m 이상 간선도로 제외 (제2조·제10조)</label></div>
+  <div class="row"><label style="justify-content:flex-start;cursor:pointer"><input id="showAlley" type="checkbox" checked> 골목·차도 표시 (실선)</label></div>
+  <div class="row" style="margin-top:4px"><label style="justify-content:flex-start;cursor:pointer"><input id="showPath" type="checkbox" checked> 계단·산책로·보행로 표시 (점선)</label></div>
+  <div class="row" style="margin-top:4px"><label style="justify-content:flex-start;cursor:pointer"><input id="show3" type="checkbox" checked> 3등급(미달)도 표시</label></div>
+  <div class="note" style="margin-top:8px"><span class="gdot g4"></span>4 취약 <span class="gdot g3" style="margin-left:6px"></span>3 미달 · <span class="dot y"></span>가로등(지번 중심)<span class="dot c"></span>보안등</div>
+
   <div id="stats">지도를 불러오는 중…</div>
   <div id="top"></div>
-  <div class="note">※ 가로등은 지번(필지) 중심 좌표라 실제 기둥과 10~30m 차이가 날 수 있고, 보안등은 개별 좌표입니다. 구 관리 가로등·보안등 기준이라 상가·건물 불빛 등은 반영되지 않아요. 표시된 구간은 확정이 아닌 <b>암부 추정 구간</b>입니다.</div>
+
+  <details>
+    <summary>산정 기준 및 근거 · 가정</summary>
+    <ul>
+      <li><b>무엇을 보여주나</b>: 가로등·보안등 불빛이 약한 구간을 4단계 <b>야간 조명 취약도 등급</b>으로 나눈 <b>추정</b>입니다. 규정 위반을 판정하거나 범죄 위험을 평가한 것이 아니며, 현장 확인 전 점검 후보를 찾기 위한 자료입니다.</li>
+      <li><b>근거 규정</b>: 서울특별시 동작구 보안등 관리규칙(규칙 제987호, 2024.8.22. 시행) 제9조, KS C 7658:2024 표 7·표 8·표 5·표 D.5·표 2.</li>
+      <li><b>기준 조도</b>: 규칙 제9조 및 KS C 7658 표 7 — 주택지역 평균 노면 조도 5 lx(교통량 많음) · 3 lx(적음), <b>균제도 0.15 이상</b>. 측정면은 <b>지면 수평면</b>으로 가정했습니다. 균제도는 표 7에 정의 문장이 없어 <b>최저 조도 ÷ 평균 조도</b>로 해석했습니다.</li>
+      <li><b>등급</b>: 1 양호(평균 5 lx 이상) · 2 충족(3~5 lx) · 3 미달(2~3 lx) · 4 취약(2 lx 미만 또는 균제도 0.15 미만). 2 lx 경계는 KS C 7658 표 9의 최저 등급(P6, 평균 2.0 lx)을 <b>참고 하한선</b>으로 준용한 것입니다(표 9는 스마트 LED 등기구 전용).</li>
+      <li><b>평가 단위</b>: 도로를 따라 <b>인접한 두 등 사이 구간</b>(등 하나가 맡는 면적), 폭 6 m(표 8, 설치 높이 5 m 기준 12 × 6 m 영역의 폭)의 평균 조도와 구간 내 최저 조도를 구합니다. 도로에서 25 m 이내의 등을 그 도로의 구간 경계로 봅니다. 가로등도 같은 폭 6 m 영역으로 평가하는 것은 가정입니다(KS C 7658에서 가로등은 휘도 기준).</li>
+      <li><b>등 사양(가정)</b>: 동작구 답변 — 보안등 LED 25~50 W·3,500 K, 가로등 LED 75~150 W·4,000 K. 각 범위의 <b>중앙값</b>(보안등 37.5 W, 가로등 112.5 W)을 사용합니다. 광효율 100 lm/W는 KS C 7658 표 5의 해당 색온도 최소 기준이며, 광속 = 전력 × 광효율 × 보정 계수입니다. 보정 계수 0.75는 표 D.5의 값이며 표준에 의미가 정의되어 있지 않습니다.</li>
+      <li><b>설치 높이(가정)</b>: 보안등 한전주·전용주 5 m, 통신주·벽부주 4 m(규칙 제11조 4~6 m, KS 표 8). 가로등 10 m는 KS C 7658 표 2의 설치 높이 구분(Rd8~Rd12)의 중간값으로 <b>추정</b>한 값입니다.</li>
+      <li><b>계산식</b>: 점광원·하반구 균일 배광(광도 I = 광속 ÷ 2π). 지면 조도 E = I·H ÷ (r²+H²)^(3/2)를 주변 모든 등(60 m 이내)에 대해 합산합니다.</li>
+      <li><b>적용 도로</b>: 보안등은 폭 12 m 미만 도로에 설치(제2조 제1호·제10조 제2항). 도로 폭 자료가 없어 상도로·양녕로·지하차도와 OpenStreetMap의 primary·secondary 도로를 제외합니다.</li>
+      <li><b>한계</b>: 실제 배광·경사각·설치 모델, 보정 계수의 의미, 건물 차폐, 상가 불빛은 반영하지 못했습니다. 가로등은 지번 중심 위치(10~30 m 오차)이고 같은 지번의 등이 한 점에 겹쳐 있어 실제와 다를 수 있습니다. 동 경계 부근은 인접 동의 등이 없어 어둡게 계산될 수 있습니다. 정확한 사양(광속·배광·높이)을 확인하면 값이 달라집니다.</li>
+    </ul>
+  </details>
 </div>
 
 <div id="msg"></div>
@@ -78,17 +113,27 @@ if (!window.KAKAO_JS_KEY || window.KAKAO_JS_KEY.startsWith("여기에")) {
 }
 
 const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
-const STEP = 5;      // 도로를 쪼개는 간격(m)
-const MIN_LEN = 10;  // 이보다 짧은 암부는 무시(m)
-// 가로등 위치(지번)를 지도에 못 올린 간선도로는 "어둡다"고 잘못 나오므로 암부 분석에서 제외
+const STEP = 3;       // 도로를 쪼개는 간격(m)
+const MIN_LEN = 10;   // 이보다 짧은 3·4등급 구간은 표시하지 않음(m)
+const MAX_LAT = 25;   // 도로에서 이 거리(m) 이내의 등을 그 도로의 구간 경계로 봄
+const MIN_CELL = 6;   // 이보다 짧은 구간은 이웃 구간과 합침(m)
+
+// 보안등은 폭 12m 미만 도로에 설치(제2조 제1호·제10조 제2항). 도로 폭 자료가 없어 이름·도로 등급으로 대용
 const EXCLUDE_NAMES = new Set(["상도로", "양녕로", "상도지하차도"]);
-const isExcluded = (tags) => EXCLUDE_NAMES.has((tags.name || "").trim()) || tags.tunnel === "yes";
+const isExcluded = (tags) => EXCLUDE_NAMES.has((tags.name || "").trim()) || tags.tunnel === "yes" ||
+  ["trunk", "primary", "secondary"].includes(tags.highway);
 // 차도 옆 인도·횡단보도(차도와 겹침), 주차장 통로는 분석에서 항상 제외
 const isIgnored = (t) => t.footway === "sidewalk" || t.footway === "crossing" || t.highway === "crossing" ||
   t.service === "parking_aisle" || t.service === "driveway";
 // 계단·산책로·보행로 / 골목·차도 구분
 const kindOf = (t) => ["footway", "path", "pedestrian", "steps", "track"].includes(t.highway) ? "path" : "alley";
 const kindLabel = (sg) => sg.tags.highway === "steps" ? "계단" : sg.kind === "path" ? "산책로·보행로" : "골목·차도";
+
+// 보안등 설치 높이(m) — 제11조: 한전 전주·전용주 4~6m, 건축물·그 밖의 구조물 2~6m, KS C 7658 표 8(4·5·6 m)
+const SEC_H = { "한전주": 5, "전용주": 5, "통신주": 4, "벽부주": 4 };
+const H_SEC_DEFAULT = 5;   // 설치형태 정보가 없는 보안등 (가로등 높이는 입력칸 값)
+const GRADE_LABEL = { 1: "양호", 2: "충족", 3: "미달", 4: "취약" };
+const GRADE_COLOR = { 3: "#ff9f1a", 4: "#ff3b30" };
 
 async function fetchRoads(bbox) {
   const [s, w, n, e] = bbox;
@@ -204,7 +249,7 @@ async function init() {
     strokeWeight: 0, fillColor: "#050a1a", fillOpacity: 0.72, zIndex: 1, clickable: false,
   });
 
-  // 가로등 점(항상 표시) + 불빛 반경(야간만)
+  // 가로등 점(항상 표시) + 불빛 도달 범위(야간만)
   const dots = lights.map((l) => new kakao.maps.Circle({
     center: ll(l.lat, l.lon), radius: 2.5, strokeWeight: 1,
     strokeColor: l.security ? "#0b7285" : "#b8860b",
@@ -225,30 +270,69 @@ async function init() {
   try {
     const ways = await fetchRoads(bbox);
     lines = Analysis.sampleWays(ways, proj, STEP);
-    Analysis.annotate(lines, lightsXY, poly);
+    Analysis.markScope(lines, poly);
   } catch (err) {
     $("stats").textContent = "도로 데이터를 불러오지 못했어요 (OpenStreetMap). 잠시 후 새로고침해 보세요.";
     console.error(err);
     return;
   }
 
+  // ---- 입력값 · 광원 목록 · 조도 계산 ----
+  function params() {
+    const num = (id, lo, hi, d) => Math.max(lo, Math.min(hi, +$(id).value || d));
+    const eff = num("eff", 50, 200, 100), mf = num("mf", 0.5, 1, 0.75);
+    const wSec = num("wSec", 15, 100, 37.5), wSt = num("wSt", 15, 250, 112.5), hSt = num("hSt", 4, 15, 10);
+    return { wSec, wSt, hSt, eff, mf, ASec: wSec * eff * mf, ASt: wSt * eff * mf, street: $("incStreet").checked };
+  }
+  let srcCache = [], eKey = "";
+  function ensureE(P) {
+    const key = [P.ASec, P.ASt, P.hSt, P.street].join("|");
+    if (key === eKey) return;
+    srcCache = lights.filter((l) => P.street || l.security).map((l) => {
+      const [x, y] = proj.toXY(l.lat, l.lon);
+      const H = l.security ? (SEC_H[l.form] || H_SEC_DEFAULT) : P.hSt;
+      const A = l.security ? P.ASec : P.ASt;
+      // 가로등은 지번 안의 등 개수(lamps)만큼 광속을 합산
+      return { lat: l.lat, lon: l.lon, x, y, H, I: ((l.lamps || 1) * A) / (2 * Math.PI) };
+    });
+    Analysis.computeStrip(lines, srcCache, 60);
+    Analysis.buildCells(lines, srcCache.map((s) => [s.x, s.y]), MAX_LAT, MIN_CELL);
+    eKey = key;
+  }
+  // (참고) 등 1개만 있을 때 3 lx에 닿는 반경(m): R = sqrt((I·H/E)^(2/3) − H²)
+  const singleR = (s, E) => {
+    const v = Math.pow((s.I * s.H) / E, 2 / 3) - s.H * s.H;
+    return v > 0 ? Math.min(Math.sqrt(v), 40) : 0;
+  };
+
   let darkLines = [];
   let night = false;
 
-  function openInfo(sg, latlng, R) {
+  function openInfo(sg, latlng) {
+    const head = sg.grade === 4 ? "가로등 간격 초과로 야간 시인성 급감" : "가로등 간격 초과로 야간 시인성 저하 가능";
+    const why = [];
+    if (sg.minAvg < 2) why.push("구간 평균 조도 2 lx 미만");
+    if (sg.minU < 0.15) why.push("균제도 0.15 미만");
+    if (!why.length) why.push("구간 평균 조도 3 lx 미만");
     infoWin.setContent(
-      `<div class="iw"><b>⚠ 가로등 간격 초과로 야간 시인성 급감</b><br>` +
+      `<div class="iw"><b>⚠ ${head}</b><br>` +
+      `야간 조명 취약도 <b>${sg.grade}등급(${GRADE_LABEL[sg.grade]})</b> · 추정<br>` +
       `${sg.name || "이름 없는 " + kindLabel(sg)} · ${kindLabel(sg)}<br>` +
-      `암부 구간 길이 약 ${Math.round(sg.length)} m<br>` +
-      `가장 가까운 가로등까지 최대 약 ${Math.round(sg.maxD)} m (불빛 반경 기준 ${R} m)</div>`
+      `구간 길이 약 ${Math.round(sg.length)} m · 인접 등 간격 최대 약 ${Math.round(sg.maxSpan)} m<br>` +
+      `구간 평균 조도 최저 약 ${sg.minAvg.toFixed(1)} lx (기준 3~5 lx)<br>` +
+      `균제도 최저 약 ${sg.minU.toFixed(2)} (기준 0.15 이상)<br>` +
+      `판정 근거: ${why.join(", ")}<br>` +
+      `<span style="opacity:.7;font-size:11.5px">가정 사양 기반 추정치 · KS C 7658, 동작구 보안등 관리규칙 제9조</span></div>`
     );
     infoWin.setPosition(latlng);
     infoWin.open(map);
   }
 
   function render() {
-    const R = +$("rng").value;
-    $("rVal").textContent = R + " m";
+    const P = params();
+    $("lmSec").textContent = Math.round(P.ASec).toLocaleString();
+    $("lmSt").textContent = Math.round(P.ASt).toLocaleString();
+    ensureE(P);
 
     darkLines.forEach((p) => p.setMap(null));
     glows.forEach((c) => c.setMap(null));
@@ -256,7 +340,7 @@ async function init() {
     $("top").innerHTML = "";
 
     const excludeOn = $("exArt").checked;
-    const showA = $("showAlley").checked, showP = $("showPath").checked;
+    const showA = $("showAlley").checked, showP = $("showPath").checked, show3 = $("show3").checked;
     excludedLen = 0;
     const useLines = lines.filter((ln) => {
       if (isIgnored(ln.tags)) return false;
@@ -264,22 +348,27 @@ async function init() {
       for (let i = 1; i < ln.samples.length; i++) excludedLen += Math.hypot(ln.samples[i].x - ln.samples[i - 1].x, ln.samples[i].y - ln.samples[i - 1].y);
       return false;
     });
-    const rA = Analysis.findDark(useLines.filter((ln) => kindOf(ln.tags) === "alley"), R, MIN_LEN);
-    const rP = Analysis.findDark(useLines.filter((ln) => kindOf(ln.tags) === "path"), R, MIN_LEN);
-    const pc = (r) => (r.totalLen ? ((r.darkLen / r.totalLen) * 100).toFixed(0) : 0);
+    Analysis.evalCells(useLines);
+    const rA = Analysis.summarize(useLines.filter((ln) => kindOf(ln.tags) === "alley"), MIN_LEN);
+    const rP = Analysis.summarize(useLines.filter((ln) => kindOf(ln.tags) === "path"), MIN_LEN);
+    const cell = (r, g) => r.total ? `${Math.round(r.len[g])} m (${((r.len[g] / r.total) * 100).toFixed(0)}%)` : "-";
+    const rows = [1, 2, 3, 4].map((g) =>
+      `<tr><td><span class="gdot g${g}"></span>${g} ${GRADE_LABEL[g]}</td><td>${cell(rA, g)}</td><td>${cell(rP, g)}</td></tr>`).join("");
+    const nBad = (r) => r.segments.length;
     $("stats").innerHTML =
-      `가로등 지번 <b>${nStreet}</b>곳 · 표찰 <b>${lights.filter((l) => !l.security).reduce((a, l) => a + l.poles, 0)}</b>개 · 등 <b>${lights.filter((l) => !l.security).reduce((a, l) => a + l.lamps, 0)}</b>개<br>` +
-      `보안등 <b>${nSec}</b>개<br>` +
-      `골목·차도 약 ${Math.round(rA.totalLen)} m 중 암부 추정 <b>${Math.round(rA.darkLen)} m (${pc(rA)}%)</b><br>` +
-      `계단·산책로 약 ${Math.round(rP.totalLen)} m 중 암부 추정 <b>${Math.round(rP.darkLen)} m (${pc(rP)}%)</b><br>` +
-      `암부 구간 <b>${rA.segments.length + rP.segments.length}</b>곳<br>` +
+      `가로등 지번 <b>${nStreet}</b>곳 · 표찰 <b>${lights.filter((l) => !l.security).reduce((a, l) => a + l.poles, 0)}</b>개 · 등 <b>${lights.filter((l) => !l.security).reduce((a, l) => a + l.lamps, 0)}</b>개 · 보안등 <b>${nSec}</b>개<br>` +
+      `<b>야간 조명 취약도 등급</b> (추정)` +
+      `<table class="gt"><tr><th>등급</th><th>골목·차도 ${Math.round(rA.total)} m</th><th>계단·산책로 ${Math.round(rP.total)} m</th></tr>${rows}</table>` +
+      `3·4등급 구간 <b>${nBad(rA) + nBad(rP)}</b>곳<br>` +
       `<span style="opacity:.75">※ 분석 범위: ${ring ? "상도1동 행정동 경계 안" : "가로등 분포 범위 (상도1동 경계를 못 불러왔어요)"}</span><br>` +
-      (excludeOn ? `<span style="opacity:.75">※ 간선도로 약 ${Math.round(excludedLen)} m 제외 중</span>` : "");
+      (excludeOn ? `<span style="opacity:.75">※ 12m 이상 간선도로 약 ${Math.round(excludedLen)} m 제외 중</span><br>` : "") +
+      `<span style="opacity:.75">※ 가정 사양 기반 추정치입니다. 아래 '산정 기준 및 근거 · 가정' 참고</span>`;
 
     if (!night) return;
 
-    glows = lights.map((l) => new kakao.maps.Circle({
-      center: ll(l.lat, l.lon), radius: R, strokeWeight: 0,
+    // (참고) 등 1개가 단독으로 3 lx를 주는 범위. 실제 판정은 주변 등의 조도를 합산한 구간 평균으로 합니다.
+    glows = srcCache.map((s) => new kakao.maps.Circle({
+      center: ll(s.lat, s.lon), radius: singleR(s, 3), strokeWeight: 0,
       fillColor: "#ffe27a", fillOpacity: 0.28, zIndex: 3, clickable: false,
     }));
     glows.forEach((c) => c.setMap(map));
@@ -287,30 +376,30 @@ async function init() {
     const segs = [
       ...(showA ? rA.segments.map((s) => ({ ...s, kind: "alley" })) : []),
       ...(showP ? rP.segments.map((s) => ({ ...s, kind: "path" })) : []),
-    ];
+    ].filter((sg) => sg.grade === 4 || show3);
     segs.forEach((sg) => {
       const isPath = sg.kind === "path";
       const pl = new kakao.maps.Polyline({
         path: sg.points.map((p) => ll(p.lat, p.lon)),
-        strokeWeight: 6, strokeColor: isPath ? "#ff4fd8" : "#ff3b30", strokeOpacity: 0.95,
-        strokeStyle: isPath ? "shortdash" : "solid", zIndex: 10,
+        strokeWeight: 6, strokeColor: GRADE_COLOR[sg.grade], strokeOpacity: 0.95,
+        strokeStyle: isPath ? "shortdash" : "solid", zIndex: sg.grade === 4 ? 11 : 10,
       });
       pl.setMap(map);
-      kakao.maps.event.addListener(pl, "click", (e) => openInfo(sg, e.latLng, R));
+      kakao.maps.event.addListener(pl, "click", (e) => openInfo(sg, e.latLng));
       darkLines.push(pl);
     });
 
-    // 암부 구간 TOP 10 (긴 순) — 클릭하면 그 위치로 이동
-    const top = segs.slice().sort((a, b) => b.length - a.length).slice(0, 10);
+    // 3·4등급 구간 TOP 10 (등급 높은 순, 긴 순) — 클릭하면 그 위치로 이동
+    const top = segs.slice().sort((a, b) => b.grade - a.grade || b.length - a.length).slice(0, 10);
     if (top.length) {
-      $("top").innerHTML = "<b>암부 구간 TOP 10 (긴 순)</b><ol>" +
-        top.map((sg, i) => `<li data-i="${i}">${sg.name || "이름 없는 " + kindLabel(sg)} · ${kindLabel(sg)} · 약 ${Math.round(sg.length)} m</li>`).join("") + "</ol>";
+      $("top").innerHTML = "<b>취약 구간 TOP 10 (등급·길이 순)</b><ol>" +
+        top.map((sg, i) => `<li data-i="${i}"><span class="gdot g${sg.grade}"></span>${sg.name || "이름 없는 " + kindLabel(sg)} · ${kindLabel(sg)} · 약 ${Math.round(sg.length)} m · 평균 최저 ${sg.minAvg.toFixed(1)} lx</li>`).join("") + "</ol>";
       $("top").querySelectorAll("li").forEach((li) => li.addEventListener("click", () => {
         const sg = top[+li.dataset.i];
         const mid = sg.points[Math.floor(sg.points.length / 2)];
         map.setLevel(2);
         map.setCenter(ll(mid.lat, mid.lon));
-        openInfo(sg, ll(mid.lat, mid.lon), R);
+        openInfo(sg, ll(mid.lat, mid.lon));
       }));
     }
   }
@@ -324,10 +413,7 @@ async function init() {
     infoWin.close();
     render();
   });
-  $("rng").addEventListener("input", render);
-  $("exArt").addEventListener("change", render);
-  $("showAlley").addEventListener("change", render);
-  $("showPath").addEventListener("change", render);
+  ["wSec", "wSt", "hSt", "eff", "mf", "incStreet", "exArt", "showAlley", "showPath", "show3"].forEach((id) => $(id).addEventListener("change", render));
 
   render();
 }
